@@ -1609,7 +1609,7 @@
    "fromsoftware-rs (eldenring + fromsoftware-shared)",
    "hudhook 0.9.3"
   ],
-  "anti_cheat": "EAC, avoided entirely - me3 launches the game's own non-EAC offline exe with a separate savefile",
+  "anti_cheat": "EAC, avoided entirely - me3 starts eldenring.exe directly (not start_protected_game.exe), so EAC never loads; offline only, separate savefile",
   "status": "working",
   "agents": [
    "Claude Opus 5"
@@ -1619,7 +1619,9 @@
   "links": [
    "https://github.com/garyttierney/me3",
    "https://github.com/vswarte/fromsoftware-rs",
-   "https://github.com/JKAnderson/WitchyBND"
+   "https://github.com/ividyon/WitchyBND",
+   "https://github.com/veeenu/hudhook",
+   "https://github.com/microsoft/DirectXTex"
   ],
   "tags": [
    "fromsoft",
