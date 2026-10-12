@@ -13,7 +13,7 @@ tools:
 - texconv (DirectXTex)
 - fromsoftware-rs (eldenring + fromsoftware-shared)
 - hudhook 0.9.3
-anti_cheat: EAC, avoided entirely - me3 launches the game's own non-EAC offline exe with a separate savefile
+anti_cheat: EAC, avoided entirely - me3 starts eldenring.exe directly (not start_protected_game.exe), so EAC never loads; offline only, separate savefile
 status: working
 agents:
 - Claude Opus 5
@@ -22,7 +22,9 @@ date: '2026-10-11'
 links:
 - https://github.com/garyttierney/me3
 - https://github.com/vswarte/fromsoftware-rs
-- https://github.com/JKAnderson/WitchyBND
+- https://github.com/ividyon/WitchyBND
+- https://github.com/veeenu/hudhook
+- https://github.com/microsoft/DirectXTex
 tags:
 - fromsoft
 - params
@@ -58,8 +60,9 @@ whether your model renders at all, and a full account of Elden Ring's
 | Overlay | hudhook 0.9.3, DX12 backend, imgui 0.12 |
 | DLL | Rust `cdylib`, `panic = "unwind"` (see gotcha 1) |
 
-me3 launches `eldenring.exe` — the game's own offline executable, no EAC — with
-a separate savefile. Nothing here requires defeating anti-cheat, and the modded
+me3 starts `eldenring.exe` directly instead of going through
+`start_protected_game.exe`, so EAC never loads and the game runs offline, with a
+separate savefile. Nothing here requires defeating anti-cheat, and the modded
 client must never go online.
 
 **Pin the bindings by revision.** crates.io `eldenring` 0.14.0 only carries RVA
@@ -81,8 +84,9 @@ is still useful — see Archives.
 
 ### Params
 
-`regulation.bin` is a **DCX_ZSTD-compressed BND4** holding ~194 param tables.
-WitchyBND unpacks it to `.param` files, each of which unpacks again to XML.
+`regulation.bin` is a **DCX_ZSTD-compressed BND4** holding ~194 param tables,
+AES-encrypted on disk with a key that is public in SoulsFormats. WitchyBND
+decrypts and unpacks it to `.param` files, each of which unpacks again to XML.
 
 **A field absent from a row's XML is that field at its paramdef default, not
 zero.** This is the most dangerous thing about scripting param edits: a row that
@@ -113,10 +117,11 @@ located by a **64-bit hash: iteratively `hash * 133 + byte` over the lowercased
 path**.
 
 You do not need the RSA keys. **me3 leaves a decrypted copy of each BHD in its
-cache**, so a reader can parse those and pull single files out of the BDTs. Ours
-is ~400 lines of Python with a pure-Python AES checked against the FIPS-197 test
-vector on every run, so a decryption bug cannot masquerade as a corrupt file. The
-UXM dictionary is a good source for the path list.
+cache** (with `boot_boost` on: `<xxh3 hash>.bhd.zz`, a u32 decrypted length and
+then raw Deflate), so a reader can parse those and pull single files out of the
+BDTs. Ours is ~400 lines of Python with a pure-Python AES checked against the
+FIPS-197 test vector on every run, so a decryption bug cannot masquerade as a
+corrupt file. The UXM dictionary is a good source for the path list.
 
 For shared installs: filter the BHD indexes by game codename — Nightreign's
 (`CL_*`) sit alongside Elden Ring's and match nothing.
@@ -174,9 +179,14 @@ integer written at runtime.
 - Writing **`request_summon_speffect_id`** asks for a summon. The binding notes
   it is "written by TAE goods consume" — the animation event fired when you use
   an ash — so writing it directly does what the game does, one step earlier.
-- **`npcParamId / 100000` is the chr model id.** BuddyParam never names a model
-  and NpcParam has no model field; the id encodes it. One integer read off a
-  corpse therefore carries the entire creature.
+- **The id encodes the chr model.** BuddyParam never names a model and
+  NpcParam has no model field. For ordinary eight-digit enemy rows the 4-digit
+  chr id is `npcParamId / 10000`: Torrent's row 80000000 is c8000, and
+  `ChrIns.character_id` holds the same 8000. Dividing by 100000 drops the last
+  digit and merges models: Juvenile Scholar (20400000) and Kindred of Rot Larva
+  (20410000) both become 204. The purpose-built `[Spirit Summon]` rows have nine
+  digits and don't follow this pattern. One integer read off a corpse therefore
+  carries the entire creature.
 - Rows can be rewritten **in live memory** through the param repository, so the
   roster need not be fixed at build time.
 
@@ -242,7 +252,8 @@ non-null there and dereferencing it is a hard fault, not a Rust panic, so
 
 `CSLuaEventProxy.control_flags` carries four bits: the sit-down request, the
 sitting loop, the stand-up, and a pending end. **Only `bonfire_stand_up_in_progress`
-is documented as being cleared.** Treating "any bit set" as "is resting" reads
+is documented as being cleared when a rest ends**; the sit-down bit is only
+cleared when the next rest begins. Treating "any bit set" as "is resting" reads
 true forever after the first rest. What does work is edge-triggering on the
 four-bit pattern *changing*, since the one bit that does clear keeps it moving.
 
@@ -334,8 +345,9 @@ mod has only ever run on this machine and game version.
     before requesting, exclude the horse, cap at ten.
 12. **The player's horse turns into a black silhouette.** *Cause:* Torrent lives
     in the summon ChrSet and the grooming loop wrote to everything it found.
-    *Fix:* exclude it — and note its chr id is **800**, not the 8000 a binding
-    comment mentions for a different field.
+    *Fix:* exclude it. Its `character_id` is **8000** (model c8000, NpcParam
+    80000000); 800 is what `npcParamId / 100000` gives, so compare like with
+    like.
 13. **An enable flag has no effect.** *Cause:* `g_GX_bEnableSSR` exists in every
     material's shared parameter block, weapon or not, but is only sampled for map
     geometry. *Fix:* check a parameter's *distribution* across the game before
